@@ -11,86 +11,66 @@
 #include <mutex>
 #include <iomanip>
 #include <algorithm>
-#include <condition_variable>
-#include <atomic>
 #include <cmath>
-#include <queue>
 
 std::mutex printMutex;
-std::mutex taskMutex;
-std::condition_variable cv;
-std::atomic<bool> isPrimeFlag;
-bool stopThreads = false;
-std::queue<std::pair<int, int>> taskQueue; // Stores (n, divisor)
+std::mutex primeCheckMutex;
+bool isPrimeFlag = true; // Shared flag for prime checking
 
-void printTimestamp(int threadID, int n, int divisor, bool isDivisible) {
-    auto now = std::chrono::system_clock::now();
-    auto timeStamp = std::chrono::system_clock::to_time_t(now);
-    auto duration = now.time_since_epoch();
-    auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count() % 1000;
-
-    std::tm timeInfo;
-    localtime_s(&timeInfo, &timeStamp);
-    char timeBuffer[9];
-    std::strftime(timeBuffer, sizeof(timeBuffer), "%H:%M:%S", &timeInfo);
-
-    //std::lock_guard<std::mutex> lock(printMutex);
-    /*std::cout << "Thread " << threadID << " | Time: " << timeBuffer << ":" << millis
-              << " | Checking: " << n << " / " << divisor
-              << " | " << (isDivisible ? "Divisible" : "Not Divisible") << std::endl;*/
-}
-
-// Worker function for checking divisibility
-void worker(int threadID) {
-    while (true) {
-        std::pair<int, int> task;
-
-        {
-            std::unique_lock<std::mutex> lock(taskMutex);
-            cv.wait(lock, [] { return !taskQueue.empty() || stopThreads; });
-
-            if (stopThreads && taskQueue.empty()) return; // Stop thread
-
-            task = taskQueue.front();
-            taskQueue.pop();
-        }
-
-        int n = task.first;
-        int divisor = task.second;
-
-        if (n % divisor == 0) {
-            isPrimeFlag = false; // Mark non-prime
-        }
-
-        printTimestamp(threadID, n, divisor, (n % divisor == 0));
+void checkDivisibility(int n, int divisor, int threadID) {   
+    if (n % divisor == 0) {
+        std::lock_guard<std::mutex> lock(primeCheckMutex);
+        isPrimeFlag = false;
+        return;
     }
 }
 
-// Process a single number for primality
 void processNumber(int n, int numThreads) {
     if (n <= 1) return;
 
     isPrimeFlag = true;
-    int sqrtN = std::sqrt(n);
+    std::vector<std::thread> threads;
+    
+    int limit = static_cast<int>(sqrt(n));
+    int threadIndex = 0; // To keep track of thread index correctly
 
-    // Assign divisibility tasks to available threads
-    for (int i = 2; i <= sqrtN; ++i) {
-        {
-            std::lock_guard<std::mutex> lock(taskMutex);
-            taskQueue.push({n, i});
+    // this is to check divisibility of n by all numbers from 2 to sqrt(n) only
+    for (int i = 2; i <= limit; ++i) {
+        threads.emplace_back(checkDivisibility, n, i, threadIndex++);
+
+        // this is to join the threads if the number of threads is more than the required number
+        if (threads.size() >= static_cast<size_t>(numThreads)) {
+            for (auto &t : threads) t.join();
+            threads.clear();
+            threadIndex = 0; 
         }
-        cv.notify_one();
     }
 
-    // Allow time for all threads to complete tasks
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    // Join any remaining threads
+    for (auto &t : threads) t.join();
 
-    // If no divisor was found, print as prime
+    // Print "Prime found!" message if still prime
     if (isPrimeFlag) {
-        std::lock_guard<std::mutex> lock(printMutex);
-        std::cout << "PRIME FOUND: " << n << std::endl;
+        auto startTime = std::chrono::system_clock::now();
+        auto timeStamp = std::chrono::system_clock::to_time_t(startTime);
+        auto duration = startTime.time_since_epoch();
+        auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count() % 1000;
+
+        std::tm timeInfo;
+        localtime_s(&timeInfo, &timeStamp);
+        char timeBuffer[9];
+        std::strftime(timeBuffer, sizeof(timeBuffer), "%H:%M:%S", &timeInfo);
+
+        // print immediately
+        {
+            std::lock_guard<std::mutex> lock(printMutex);
+            std::cout << "Thread " << threadIndex << " | Time: " << timeBuffer << ":" << millis
+                      << " | Prime found! " << n << std::endl;
+        }
     }
 }
+
+
 
 bool isNumValid(std::string value) {
     // Trim leading/trailing spaces
@@ -106,6 +86,33 @@ bool isNumValid(std::string value) {
     return true;
 }
 
+void printStartAndEnd(std::chrono::time_point<std::chrono::system_clock> start, std::chrono::time_point<std::chrono::system_clock> end) {
+    std::chrono::duration<double> elapsed_seconds = end - start;
+
+    // Extract milliseconds
+    auto start_ms = std::chrono::duration_cast<std::chrono::milliseconds>(start.time_since_epoch()) % 1000;
+    auto end_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end.time_since_epoch()) % 1000;
+
+    // Convert to time_t for readable format
+    std::time_t start_time = std::chrono::system_clock::to_time_t(start);
+    std::time_t end_time = std::chrono::system_clock::to_time_t(end);
+
+    // Print timestamps with milliseconds
+    std::cout << "Started computation at: " 
+              << std::put_time(std::localtime(&start_time), "%H:%M:%S") 
+              << ":" << std::setfill('0') << std::setw(3) << start_ms.count()
+              << std::endl;
+
+    std::cout << "Finished computation at: " 
+              << std::put_time(std::localtime(&end_time), "%H:%M:%S") 
+              << ":" << std::setfill('0') << std::setw(3) << end_ms.count()
+              << std::endl;
+
+    std::cout << "Elapsed time: " 
+              << elapsed_seconds.count() << "s" 
+              << std::endl;
+
+}
 
 int main()
 {
@@ -146,38 +153,18 @@ int main()
             }
         }
     }
-
-    configFile.close();
-
-    // Start worker threads
-    std::vector<std::thread> workers;
-    for (int i = 0; i < xNumThreads; ++i) {
-        workers.emplace_back(worker, i + 1);
-    }
-
+    
     auto start = std::chrono::system_clock::now();
-
+    
     for (int i = 2; i <= yNumber; ++i) {
         processNumber(i, xNumThreads);
     }
+    
+    std::cout << "All threads done!" << std::endl;
 
-    // Stop threads
-    {
-        std::lock_guard<std::mutex> lock(taskMutex);
-        stopThreads = true;
-    }
-    cv.notify_all();
-
-    for (auto &t : workers) {
-        t.join();
-    }
-
-    // End timing
     auto end = std::chrono::system_clock::now();
-    std::chrono::duration<double> elapsed_seconds = end - start;
-
-    // Print results
-    std::cout << "Elapsed time: " << elapsed_seconds.count() << "s" << std::endl;
-
+    printStartAndEnd(start, end);
+    
+    configFile.close();
     return 0;
 }

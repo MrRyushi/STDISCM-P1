@@ -74,6 +74,33 @@ bool isNumValid(std::string value) {
     return true;
 }
 
+void printStartAndEnd(std::chrono::time_point<std::chrono::system_clock> start, std::chrono::time_point<std::chrono::system_clock> end) {
+    std::chrono::duration<double> elapsed_seconds = end - start;
+
+    // Extract milliseconds
+    auto start_ms = std::chrono::duration_cast<std::chrono::milliseconds>(start.time_since_epoch()) % 1000;
+    auto end_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end.time_since_epoch()) % 1000;
+
+    // Convert to time_t for readable format
+    std::time_t start_time = std::chrono::system_clock::to_time_t(start);
+    std::time_t end_time = std::chrono::system_clock::to_time_t(end);
+
+    // Print timestamps with milliseconds
+    std::cout << "Started computation at: " 
+              << std::put_time(std::localtime(&start_time), "%H:%M:%S") 
+              << ":" << std::setfill('0') << std::setw(3) << start_ms.count()
+              << std::endl;
+
+    std::cout << "Finished computation at: " 
+              << std::put_time(std::localtime(&end_time), "%H:%M:%S") 
+              << ":" << std::setfill('0') << std::setw(3) << end_ms.count()
+              << std::endl;
+
+    std::cout << "Elapsed time: " 
+              << elapsed_seconds.count() << "s" 
+              << std::endl;
+
+}
 
 int main()
 {
@@ -135,32 +162,7 @@ int main()
     printNumbers();
 
     auto end = std::chrono::system_clock::now();
-    std::chrono::duration<double> elapsed_seconds = end - start;
-
-    // Extract milliseconds
-    auto start_ms = std::chrono::duration_cast<std::chrono::milliseconds>(start.time_since_epoch()) % 1000;
-    auto end_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end.time_since_epoch()) % 1000;
-
-    // Convert to time_t for readable format
-    std::time_t start_time = std::chrono::system_clock::to_time_t(start);
-    std::time_t end_time = std::chrono::system_clock::to_time_t(end);
-
-    // Print timestamps with milliseconds
-    std::cout << "Started computation at: " 
-              << std::put_time(std::localtime(&start_time), "%H:%M:%S") 
-              << ":" << std::setfill('0') << std::setw(3) << start_ms.count()
-              << std::endl;
-
-    std::cout << "Finished computation at: " 
-              << std::put_time(std::localtime(&end_time), "%H:%M:%S") 
-              << ":" << std::setfill('0') << std::setw(3) << end_ms.count()
-              << std::endl;
-
-    std::cout << "Elapsed time: " 
-              << elapsed_seconds.count() << "s" 
-              << std::endl;
-
-
+    printStartAndEnd(start, end);
     configFile.close();
     return 0;
 }
